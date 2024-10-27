@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Análisis de Criptomonedas</title>
+    <style>
+        body {
+            background-color: #0a0f1e;
+            font-family: 'Rajdhani', sans-serif;
+            color: #d4f1ff;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+
+        }
+        #currentTime {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        /* Estilos generales para el contenedor, encabezados y select */
+        .container1 {
+            margin: 4px;
+            padding: 10px;
+            background: rgba(255, 255, 255, 0.1);
+            border: 2px solid #1b263b;
+            border-radius: 15px;
+            box-shadow: 0px 0px 30px rgba(9, 255, 255, 0.7);
+            max-width: 425px;
+            margin: 0 auto;
+        }
+        .input1, #coinSelector {
+            width: 100%;
+            padding: 10px;
+            background-color: #0e172a;
+            border: 2px solid #09ffcf;
+            color: #d4f1ff;
+            font-size: 16px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            box-sizing: border-box;
+        }
+        #countdown {
+            font-size: 20px;
+            color: #09ffcf;
+            margin: 20px 0;
+        }
+
+        .dos {
+
+            width: 100%;
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            grid-gap: 10px;
+            /* Espacio entre elementos */
+            list-style-type: none;
+            /* Quitar los puntos de la lista */
+            padding: 10;
+            align-font: center;
+        }
+
+        .bt1 {
+            width: 100%;
+            height: 40px;
+            padding: 2px;
+            background: linear-gradient(45deg, #09ffcf, #0e72ec);
+            color: #0a0f1e;
+            font-size: 18px;
+            font-family: 'Orbitron', sans-serif;
+            border: none;
+            cursor: pointer;
+            border-radius: 10px;
+            transition: all 0.3s ease;
+            align-items: center;
+        }
+
+        .bt2 {
+            width: 100%;
+            height: 40px;
+            padding: 2px;
+            background: linear-gradient(45deg, #09ffcf, #ec0e0e);
+            color: #0a0f1e;
+            font-size: 18px;
+            font-family: 'Orbitron', sans-serif;
+            border: none;
+            cursor: pointer;
+            border-radius: 10px;
+            transition: all 0.3s ease;
+            align-items: center;
+        }
+
+        .bt1:hover {
+            background: linear-gradient(45deg, #0e72ec, #09ffcf);
+            box-shadow: 0px 0px 15px rgba(9, 255, 255, 0.9);
+        }
+        .bt2:hover {
+            background: linear-gradient(45deg, #ec0e0e, #09ffcf);
+            box-shadow: 0px 0px 15px rgba(9, 255, 255, 0.9);
+        }
+
+        #suggestion {
+            font-size: 18px; /* Aumenta el tamaño de la fuente */
+            font-weight: bold;  /* Hace el texto más grueso */
+            color: #f7f7f7;        /* Color de texto */
+            
+            margin-top: 20px;   /* Espacio superior */
+        }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/axios/0.21.1/axios.min.js"></script>
+    <script>
+        const BASE_URL = 'https://api.binance.com/api/v3';
+        let intervalId = null; // Para guardar el ID del intervalo
+        let countdownTime = 60; // 60 segundos para el contador
+        let isRunning = false; // Para verificar si el análisis está en curso
+        let countdownInterval = null; // Para el contador regresivo
+
+        // Función para obtener datos de precios
+        async function fetchDataFromBinance(symbol, interval, limit) {
+            try {
+                const response = await axios.get(`${BASE_URL}/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`);
+                const prices = response.data.map(candle => parseFloat(candle[4])); // Precio de cierre
+                return prices;
+            } catch (error) {
+                console.error("Error al obtener datos de Binance:", error);
+                return [];
+            }
+        }
+
+        // Calcular la Media Móvil
+        function calculateMA(prices, window) {
+            return prices.map((_, index, arr) => {
+                if (index < window - 1) return null; // No hay suficientes datos
+                const slice = arr.slice(index - window + 1, index + 1);
+                return slice.reduce((sum, price) => sum + price, 0) / window;
+            }).slice(window - 1);
+        }
+
+        // Calcular el MACD
+        function calculateMACD(prices, shortWindow = 12, longWindow = 26, signalWindow = 9) {
+            const shortMA = calculateMA(prices, shortWindow);
+            const longMA = calculateMA(prices, longWindow);
+            const macdLine = shortMA.map((value, index) => value - (longMA[index] || 0)).slice(signalWindow - 1);
+            const signalLine = calculateMA(macdLine, signalWindow);
+            return { macdLine, signalLine };
+        }
+
+        // Calcular el RSI
+        function calculateRSI(prices, period = 14) {
+            let rsiValues = [];
+            for (let i = period; i < prices.length; i++) {
+                const gains = [];
+                const losses = [];
+                for (let j = 1; j <= period; j++) {
+                    const change = prices[i - j] - prices[i - j - 1];
+                    if (change > 0) gains.push(change);
+                    else losses.push(-change); // Guardar como positivo
+                }
+                const avgGain = gains.reduce((a, b) => a + b, 0) / period || 0;
+                const avgLoss = losses.reduce((a, b) => a + b, 0) / period || 0;
+                const rs = avgGain / avgLoss || 0;
+                const rsi = 100 - (100 / (1 + rs));
+                rsiValues.push(rsi);
+            }
+            return rsiValues;
+        }
+
+        // Calcular CHOCH
+        function calculateCHOCH(prices, period = 14) {
+            const high = Math.max(...prices.slice(-period));
+            const low = Math.min(...prices.slice(-period));
+            const choch = ((high - low) / low) * 100; // Se calcula como porcentaje
+            return choch;
+        }
+
+        // Función para analizar y mostrar resultados
+        async function analyze() {
+            const symbol = document.getElementById("coinSelector").value.toUpperCase();
+            const interval = document.getElementById("interval").value;
+
+            const prices = await fetchDataFromBinance(symbol, interval, 100);
+            if (prices.length < 30) {
+                alert("No hay suficientes datos para análisis.");
+                return;
+            }
+
+            const maShort = calculateMA(prices, 5);
+            const maLong = calculateMA(prices, 20);
+            const { macdLine, signalLine } = calculateMACD(prices);
+            const rsiValues = calculateRSI(prices);
+            const choch = calculateCHOCH(prices);
+            const currentPrice = prices[prices.length - 1];
+            const tp = (currentPrice * 1.025).toFixed(4); // TP: 2.5% sobre el precio actual
+            const sl = (currentPrice * 0.985).toFixed(4); // SL: 1.5% bajo el precio actual
+
+            document.getElementById("result").innerHTML = `
+                <h3>Resultados para ${symbol}</h3>
+                <p><h3>Precio Actual: $${currentPrice.toFixed(4)}</h3></p>
+            `;
+
+            // Lógica de sugerencias
+            let suggestionInitial = "Mantener posición.";
+            let suggestionFinal = "";
+
+            // Posible compra
+            if (maShort[maShort.length - 1] > maLong[maLong.length - 1] && macdLine[macdLine.length - 1] > signalLine[signalLine.length - 1] && rsiValues[rsiValues.length - 1] < 30 && choch > 0) {
+                suggestionInitial = "Posible compra.";
+                if (rsiValues[rsiValues.length - 1] < 25) {
+                    suggestionFinal = "Compra.";
+                }
+            }
+            // Posible venta
+            else if (maShort[maShort.length - 1] < maLong[maLong.length - 1] && macdLine[macdLine.length - 1] < signalLine[signalLine.length - 1] && rsiValues[rsiValues.length - 1] > 70 && choch < 0) {
+                suggestionInitial = "Posible venta.";
+                if (rsiValues[rsiValues.length - 1] > 75) {
+                    suggestionFinal = "Vende.";
+                }
+            }
+
+            // Mostrar resultados solo si hay señales
+            if (suggestionFinal) {
+                document.getElementById("result").innerHTML += `
+                    <p>Take Profit (TP): $${tp}</p>
+                    <p>Stop Loss (SL): $${sl}</p>
+                `;
+            }
+
+            // Mostrar sugerencias
+            document.getElementById("suggestion").innerText = `${suggestionInitial} ${suggestionFinal}`;
+        }
+
+        // Función para iniciar el análisis automático
+            function startAutoAnalyze() {
+                if (isRunning) return; // Si ya está en ejecución, salir
+                isRunning = true;
+                countdownTime = 60; // Reiniciar el contador a 60 segundos
+                document.getElementById("countdown").innerText = `Tiempo restante: ${countdownTime} segundos`;
+
+                // Iniciar el análisis inmediato
+                analyze();
+
+                // Limpiar el contador anterior
+                clearInterval(countdownInterval);
+                countdownInterval = setInterval(() => {
+                    countdownTime--;
+                    document.getElementById("countdown").innerText = `Tiempo restante: ${countdownTime} segundos`;
+
+                    // Si el contador llega a cero, realizar análisis y reiniciar el contador
+                    if (countdownTime <= 0) {
+                        analyze(); // Llama a la función de análisis
+                        countdownTime = 60; // Reiniciar el contador a 60 segundos
+                    }
+                }, 1000);
+            }
+
+        // Función para detener el análisis automático
+        function stopAutoAnalyze() {
+            clearInterval(intervalId); // Detener el intervalo de análisis
+            clearInterval(countdownInterval); // Detener el contador regresivo
+            isRunning = false; // Cambiar el estado a no en ejecución
+            countdownTime = 1; // Reiniciar el contador
+            document.getElementById("countdown").innerText = `Detenido`; // Mensaje de detenido
+            document.getElementById("result").innerHTML = ""; // Limpiar resultados
+            document.getElementById("suggestion").innerText = ""; // Limpiar sugerencias
+        }
+    </script>
+    <script>
+        function updateTime() {
+            const now = new Date(); // Obtiene la fecha y hora actuales
+            const hours = String(now.getHours()).padStart(2, '0'); // Obtiene las horas y las formatea
+            const minutes = String(now.getMinutes()).padStart(2, '0'); // Obtiene los minutos y los formatea
+            const seconds = String(now.getSeconds()).padStart(2, '0'); // Obtiene los segundos y los formatea
+
+            // Crea una cadena de tiempo en formato HH:MM:SS
+            const currentTime = `${hours}:${minutes}:${seconds}`;
+            document.getElementById("currentTime").innerText = `Hora local: ${currentTime}`; // Muestra la hora en el elemento HTML
+        }
+
+        // Actualiza la hora cada segundo
+        setInterval(updateTime, 1000);
+
+        // Llama a la función una vez para mostrar la hora inmediatamente al cargar la página
+        updateTime();
+    </script>
+</head>
+<body>
+    <div class="container1">
+        <h2><div id="currentTime"></div></h2>
+        <div class="dos">
+        <select id="coinSelector" class="input1">
+            <option value="BTCUSDT">Bitcoin (BTC/USDT)</option>
+            <option value="ETHUSDT">Ethereum (ETH/USDT)</option>
+            <option value="BNBUSDT">Binance Coin (BNB/USDT)</option>
+            <option value="FTMUSDT">FTM (FTM/USDT)</option>
+            <option value="SOLUSDT">SOL (SOL/USDT)</option>
+            <option value="AAVEUSDT">AAVE (AAVE/USDT)</option>
+            <option value="SUPERUSDT">SUPER (SUPER/USDT)</option>
+            <option value="ARKUSDT">ARK (ARK/USDT)</option>
+            <option value="MKRUSDT">MKR (MKR/USDT)</option>
+            <option value="UNIUSDT">UNI (UNI/USDT)</option>
+            <option value="TONUSDT">TON (TON/USDT)</option>
+            <option value="WIFUSDT">WIF (WIF/USDT)</option>
+            <option value="LQTYUSDT">LQTY (LQTY/USDT)</option>
+        </select>
+        <select id="interval" class="input1">
+            <option value="1m">1 Minuto</option>
+            <option value="5m">5 Minutos</option>
+            <option value="15m">15 Minutos</option>
+            <option value="1h">1 Hora</option>
+            <option value="4h">4 Hora</option>
+            <option value="1d">1 Día</option>
+        </select>
+        </div>
+        <div class="dos">
+        <button class="bt1" onclick="startAutoAnalyze()">Analizar</button>
+        <button class="bt2" onclick="stopAutoAnalyze()">Detener</button>
+        </div>
+        <div id="countdown">Tiempo restante: 60 segundos</div>
+        <div id="result"></div>
+        <div id="suggestion"></div>
+    </div>
+</body>
+</html>
